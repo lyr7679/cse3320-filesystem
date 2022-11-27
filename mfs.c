@@ -20,6 +20,26 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 // THE SOFTWARE.
 
+//del still kind of weird
+//have to set blocks to be able to be written over but then i dont know how
+//  undel will work, how will that directory know when its data has been written over?
+//still need get commands
+//list command supa scuffed,seg faults i have no idea whats going on in there, may be a hard
+//  reset angle tbh, shouldnt be that hard
+//savefs, open should be good
+//removed the second set of ifs in the attrib, think it will only be one or the other
+//  wont be two commands at once, probably need to change the passed in filename to the
+//  attrib command to be token[2]
+//also do we want createfs to change data_blocks?
+//  shouldnt data_blocks only be changed after we call open?
+//  would need to have a reset data-blocks command
+//also probably need to reset everything if we close because technically if we close
+//  we can still use list command and other stuff and I dont think thats how it should work
+//  or maybe just have a conditional for if the currentFp == NULL then only open, createfs, 
+//  and quit can be run
+//also made a global FILE currentFp to be the file that we are currently using, will be NULL
+//  if no file is currently open, line 93 is where its initialized
+
 #define _GNU_SOURCE
 
 #include <stdio.h>
@@ -70,6 +90,7 @@ struct inode{
 };
 
 struct inode * inode_arr_ptr[NUM_INODES];
+FILE *currentFp = NULL;
 
 int findFreeDirectory();
 int findFreeInode();
@@ -85,6 +106,10 @@ void initDirectory();
 void initInodes();
 void initFreeBlocks();
 void initFreeInodes();
+int delInode(char *filename);
+int undelInode(char *filename);
+void openfs(char *filename);
+void savefs();
 
 int main()
 {
@@ -256,7 +281,7 @@ int findFreeInodeBlock(int inode_idx)
 //and printing error messages will be handled in the respective functions, not here
 int valid_commands(char *token[])
 {
-
+    FILE *fp;
     if(token[0] == NULL)
     {
         return -1;
@@ -268,39 +293,55 @@ int valid_commands(char *token[])
         if(token[1] == NULL)
         {
           printf("put: too few arguments\n");
-          return 0;
         }
         put_command(token[1]);
-        return 0;
     }
     //if strcmp matches with listpids, we call our print pids function
     //that takes care of the functionality of the "listpids" command
     else if(!strcmp(token[0], "df"))
     {
         printf("%d bytes free\n", df_command());
-        return 0;
     }
     //if strcmp matches with cd, we call chdir
     //that takes care of the functionality of the "cd" command
     else if(!strcmp(token[0], "list"))
     {
         list_command(token);
-        return 0;
     }
     else if(!strcmp(token[0], "createfs"))
     {
       if(token[1] == NULL)
       {
         printf("createfs: File not found.\n");
-        return 0;
       }
       createfs_command(token[1]);
-        return 0;
+    }
+    else if(!strcmp(token[0], "open"))
+    {
+      openfs(token[1]);
+    }
+    else if(!strcmp(token[0], "del"))
+    {
+      delInode(token[1]);
+    }
+    else if(!strcmp(token[0], "undel"))
+    {
+      undelInode(token[1]);
+    }
+    else if(!strcmp(token[0], "savefs"))
+    {
+      savefs(fp);
+    }
+    else if(!strcmp(token[0], "close"))
+    {
+      fclose(currentFp);
+      currentFp = NULL;
     }
     //if all conditions do not apply, return -1 to set flag
     //means command not found
     else
         return 1;
+    return 0;
 }
 
 
@@ -522,12 +563,12 @@ void put_command(char *filename)
 //im just going back six and cutting off the string there
 void list_command(char *token[])
 {
-  //int dir_idx = 0;
   int inode_idx = 0;
+  int dir_idx;
   char *str;
 
-//  while(directory_ptr[dir_idx].name != NULL)
-  for(int dir_idx = 131; dir_idx < NUM_BLOCKS; dir_idx++)
+//  while(directory_ptr[i].name != NULL)
+  for(int dir_idx = 0; dir_idx < NUM_BLOCKS; dir_idx++)
   {
     if(!strcmp(token[1], "-h") && directory_ptr[dir_idx].valid == 1)
     {
@@ -562,6 +603,7 @@ void list_command(char *token[])
 //the struct (accounts for if you change both attributes at one time)
 //if the flag is still set to zero by the end of it, we print out that the file
 //wasn't found
+//removed the second set of ifs, not needed, will be one or the other not both at the same time
 void attrib_command(char *token[])
 {
   int dir_idx = 0;
@@ -590,15 +632,6 @@ void attrib_command(char *token[])
       else if(!strcmp(token[1], "+r"))
         inode_arr_ptr[inode_idx]->read_only = 1;
       else if(!strcmp(token[1], "-r"))
-        inode_arr_ptr[inode_idx]->read_only = 0;
-
-      if(!strcmp(token[2], "+h"))
-        inode_arr_ptr[inode_idx]->hidden = 1;
-      else if(!strcmp(token[2], "-h"))
-        inode_arr_ptr[inode_idx]->hidden = 0;
-      else if(!strcmp(token[2], "+r"))
-        inode_arr_ptr[inode_idx]->read_only = 1;
-      else if(!strcmp(token[2], "-r"))
         inode_arr_ptr[inode_idx]->read_only = 0;
 
       break;
@@ -704,4 +737,60 @@ void initFreeInodes()
   {
     data_blocks[2][i] = 'F';
   }
+}
+
+int delInode(char *filename)
+{
+  for(int i = 0; i < NUM_INODES; i++)
+  {
+    if(!strcmp(directory_ptr[i].name, filename))
+    {
+      inode_arr_ptr[directory_ptr[i].inode_idx]->valid = -1;
+      printf("Successfully deleted file %s\n", filename);
+      return 0;
+    }
+  }
+  printf("File %s does not exist\n", filename);
+  return -1;
+}
+
+int undelInode(char *filename)
+{
+  for(int i = 0; i < NUM_INODES; i++)
+  {
+    if(!strcmp(directory_ptr[i].name, filename) && inode_arr_ptr[directory_ptr[i].inode_idx]->valid == -1)
+    {
+      inode_arr_ptr[directory_ptr[i].inode_idx]->valid = 0;
+      printf("File %s successfully recovered \n", filename);
+      return 0;
+    }
+  }
+  printf("File %s could not be recovered\n", filename);
+  return -1;
+}
+
+void openfs(char *filename) 
+{
+  if(currentFp == NULL)
+  {
+    currentFp = fopen(filename, "r+");
+    if(currentFp == NULL) {
+      printf("invalid filename\n");
+    }
+  }
+  else
+    printf("Another file is already open\nClose before opening %s\n", filename);
+
+  fread(&data_blocks[0], BLOCK_SIZE, NUM_BLOCKS, currentFp);
+  directory_ptr = (struct directory_entry *)&data_blocks[0];
+  for(int i = 0; i < NUM_INODES; i++)
+  {
+    inode_arr_ptr[i] = (struct inode *)&data_blocks[i+5];
+  }
+}
+
+void savefs()
+{
+  rewind(currentFp);
+  fwrite(&data_blocks[0], BLOCK_SIZE, NUM_BLOCKS, currentFp);
 }
