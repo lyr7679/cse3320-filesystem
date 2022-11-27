@@ -49,60 +49,50 @@
 #define MAX_FILE_NAME 32        //max number of characters allowed for a file name
 
 unsigned char data_blocks[NUM_BLOCKS][BLOCK_SIZE];
-int used_blocks[NUM_BLOCKS];
-int total_files = 0;        //current number of file in system
+// int used_blocks[NUM_BLOCKS];
 
 struct directory_entry{
-  char * name;
+  char name[MAX_FILE_NAME];
   int valid;
   int inode_idx;
-  int hidden;
-  int read_only;
 };
 
 struct directory_entry *directory_ptr;
 
+//attributes have been moved to inode struct
 struct inode{
   time_t date;
   int valid;
   int filesize;
+  int hidden;
+  int read_only;
   int blocks[MAX_BLOCKS_PER_FILE];
 };
 
 struct inode * inode_arr_ptr[NUM_INODES];
-
 
 int findFreeDirectory();
 int findFreeInode();
 int findFreeBlock();
 int findFreeInodeBlock(int inode_idx);
 int valid_commands(char *token[]);
+void createfs_command(char *);
 void put_command(char *);
 void list_command(char *token[]);
 void attrib_command(char *token[]);
 int df_command();
+void initDirectory();
+void initInodes();
+void initFreeBlocks();
+void initFreeInodes();
 
 int main()
 {
   char * cmd_str = (char*) malloc( MAX_COMMAND_SIZE );
 
-  //at some point we need to turn all of these to -1 to indicate a free inode,
-  //not sure when, maybe when created in put???
-  
-  // for(int j = 0; j < NUM_INODES; j++)
-  // {
-  //   for(int i = 0; i < 32; i++)
-  //   {
-  //     inode_arr_ptr[j]->blocks[i] = -1;
-  //   }
-  // }
+  //initialize EVERYTHING
 
-  //setting all initial entries in used_blocks to zero since at the start no
-  //blocks are used
-  for(int i = 0; i < NUM_BLOCKS; i++)
-  {
-    used_blocks[i] = 0;
-  }
+
 
   while( 1 )
   {
@@ -153,24 +143,31 @@ int main()
 //    Now print the tokenized input as a debug check
 //    \TODO Remove this code and replace with your shell functionality
     //
-    // int token_index  = 0;
-    // for( token_index = 0; token_index < token_count; token_index ++ )
-    // {
-    //   printf("token[%d] = %s\n", token_index, token[token_index] );
-    // }
+    int token_index  = 0;
+    for( token_index = 0; token_index < token_count; token_index ++ )
+    {
+      printf("token[%d] = %s\n", token_index, token[token_index] );
+    }
 
     //clearing b/c sometimes we can get leftover garbage which throws results
     //for later loops
+
+    free( working_root );
+
+    int valid_cmd = valid_commands(token);
+
+    if(valid_cmd == 1)
+    {
+      printf("no\n");
+    }
+
+    //confirmation check after every loop
+    printf("Disk free: %d bytes\n", df_command());
+
     for(int i = 0; i < token_count; i++)
     {
         token[i] = NULL;
     }
-
-    free( working_root );
-
-
-    //confirmation check after every loop
-    printf("Disk free: %d bytes\n", df_command());
 
   }
   return 0;
@@ -179,13 +176,14 @@ int main()
 
 //if the valid parameter is equal to zero, that means the directory entry
 //is free to use
-//used bakker code, not sure why he does until 128, i feel like we need to
-//change this??? maybe??
+//we will have at max 125 directories (one per file) so to find a free
+//dir we can just go through our directory_ptr arrray which has already been
+//initialized at the start to have valid as 0
 int findFreeDirectory()
 {
   int returnval = -1;
 
-  for(int i = 0; i < 128; i++)
+  for(int i = 0; i < MAX_FILE_NUM; i++)
   {
     if(directory_ptr[i].valid == 0)
     {
@@ -196,17 +194,17 @@ int findFreeDirectory()
   return returnval;
 }
 
-//if the valid parameter is equal to zero, that means the inode entrry
-//is free to use
-//used bakker code, not sure why he does until 128, i feel like we need to
-//change this??? maybe???
+//he told us to use block 2 as a inode map so in the initilization im just
+//filling all of data_block 2 with F (for false as in free) and true is filled
+//however since the inode blocks are 5 - 130, im only looking for indexes through
+//that point. aka we will never use 0-4 or 131 - 8192 bytes of this block
 int findFreeInode()
 {
   int returnval = -1;
 
-  for(int i = 0; i < 128; i++)
+  for(int i = 5; i < 130; i++)
   {
-    if(inode_arr_ptr[i]->valid == 0)
+    if(data_blocks[2][i] == 'F')
     {
       returnval = i;
       break;
@@ -215,17 +213,16 @@ int findFreeInode()
   return returnval;
 }
 
-//im starting at 131 b/c step 1.11 says blocks 5-130 are for inodes, so
-//we cant start looking for free blocks to store file data until after that
-//if the block index is set to zero, that means it's not in use so we return
-//the first one we find
+//looking at block 3 b/c thats supposed to be reserved for the free block map
+//same as inodes where we fill all during initialization but since free data blocks
+//are only 131 - 4226, im only looking/returning at those indexes
 int findFreeBlock()
 {
   int returnval = -1;
 
   for(int i = 131; i < NUM_BLOCKS; i++)
   {
-    if(used_blocks[i] == 0)
+    if(data_blocks[3][i] == 'F')
     {
       returnval = i;
       break;
@@ -235,11 +232,13 @@ int findFreeBlock()
 }
 
 //inode block is not in use if index is -1
-//again not sure why he set this for loop to be until 32
+//pretty sure this is just to make surre that when you're writing to the
+//inode block array and sayiing what blocks are being used for that file,
+//you're making sure to put them in sequential order
 int findFreeInodeBlock(int inode_idx)
 {
   int returnval = -1;
-  for(int i = 0; i < 32; i++)
+  for(int i = 0; i < MAX_BLOCKS_PER_FILE; i++)
   {
     if(inode_arr_ptr[inode_idx]->blocks[i] == -1);
     {
@@ -257,6 +256,7 @@ int findFreeInodeBlock(int inode_idx)
 //and printing error messages will be handled in the respective functions, not here
 int valid_commands(char *token[])
 {
+
     if(token[0] == NULL)
     {
         return -1;
@@ -285,6 +285,16 @@ int valid_commands(char *token[])
     else if(!strcmp(token[0], "list"))
     {
         list_command(token);
+        return 0;
+    }
+    else if(!strcmp(token[0], "createfs"))
+    {
+      if(token[1] == NULL)
+      {
+        printf("createfs: File not found.\n");
+        return 0;
+      }
+      createfs_command(token[1]);
         return 0;
     }
     //if all conditions do not apply, return -1 to set flag
@@ -341,7 +351,7 @@ void put_command(char *filename)
     directory_ptr[dir_idx].valid = 1;
 
     //allocate memory for filename
-    directory_ptr[dir_idx].name = (char *) malloc(strlen(filename));
+    // directory_ptr[dir_idx].name = (char *) malloc(strlen(filename));
     //storing file name into directory struct
     strncpy(directory_ptr[dir_idx].name, filename, strlen(filename));
 
@@ -358,8 +368,8 @@ void put_command(char *filename)
     directory_ptr[dir_idx].inode_idx = inode_idx;
 
     //file always starts off with both attributes "off"
-    directory_ptr[dir_idx].hidden = 0;
-    directory_ptr[dir_idx].read_only = 0;
+    inode_arr_ptr[inode_idx]->hidden = 0;
+    inode_arr_ptr[inode_idx]->read_only = 0;
 
     //now that we have the inode index we can store information like time, size,
     //the fact that it's in use, etc
@@ -407,7 +417,7 @@ void put_command(char *filename)
       }
 
       //letting filesystem know this specific block is now in use
-      used_blocks[block_index] = 1;
+      data_blocks[3][block_index] = 1;
 
       int inode_block = findFreeInodeBlock(inode_idx);
 
@@ -480,7 +490,7 @@ void put_command(char *filename)
       }
       inode_arr_ptr[inode_idx]->blocks[inode_block] = block_index;
 
-      used_blocks[block_index] = 1;
+      data_blocks[3][block_index] = 1;
 
       fseek( ifp, offset, SEEK_SET );
       int bytes  = fread( data_blocks[block_index], copy_size, 1, ifp );
@@ -532,7 +542,7 @@ void list_command(char *token[])
       str = (char *) inode_arr_ptr[inode_idx]->date;
       str[strlen(str) - 6] = '\0';
 
-      if(directory_ptr[dir_idx].hidden != 1)
+      if(inode_arr_ptr[inode_idx]->hidden != 1)
         printf("%d %s %s\n", inode_arr_ptr[inode_idx]->date, str, directory_ptr[dir_idx].name);
     }
     dir_idx++;
@@ -570,24 +580,25 @@ void attrib_command(char *token[])
     if(!strcmp(directory_ptr[dir_idx].name, filename))
     {
       found = 1;
+      int inode_idx = directory_ptr[dir_idx].inode_idx;
 
       if(!strcmp(token[1], "+h"))
-        directory_ptr[dir_idx].hidden = 1;
+        inode_arr_ptr[inode_idx]->hidden = 1;
       else if(!strcmp(token[1], "-h"))
-        directory_ptr[dir_idx].hidden = 0;
+        inode_arr_ptr[inode_idx]->hidden = 0;
       else if(!strcmp(token[1], "+r"))
-        directory_ptr[dir_idx].read_only = 1;
+        inode_arr_ptr[inode_idx]->read_only = 1;
       else if(!strcmp(token[1], "-r"))
-        directory_ptr[dir_idx].read_only = 0;
+        inode_arr_ptr[inode_idx]->read_only = 0;
 
       if(!strcmp(token[2], "+h"))
-        directory_ptr[dir_idx].hidden = 1;
+        inode_arr_ptr[inode_idx]->hidden = 1;
       else if(!strcmp(token[2], "-h"))
-        directory_ptr[dir_idx].hidden = 0;
+        inode_arr_ptr[inode_idx]->hidden = 0;
       else if(!strcmp(token[2], "+r"))
-        directory_ptr[dir_idx].read_only = 1;
+        inode_arr_ptr[inode_idx]->read_only = 1;
       else if(!strcmp(token[2], "-r"))
-        directory_ptr[dir_idx].read_only = 0;
+        inode_arr_ptr[inode_idx]->read_only = 0;
 
       break;
     }
@@ -600,8 +611,9 @@ void attrib_command(char *token[])
 //this just returns the number of free bytes
 //i start from 131 bc he said use blocks 5-130 for inodes so our
 //data blocks dont start until 131
-//if thee used_block index is zero, it means its free and we increment
+//if the data_blocks[3] index , it means its free and we increment
 //the count, which gives us the number of free blocks
+//since it's supposed to be the freeee block map
 //then we just multiply by the block size to get the number of bytes.
 int df_command()
 {
@@ -609,8 +621,86 @@ int df_command()
 
   for(int i = 131; i < NUM_BLOCKS; i++)
   {
-    if(used_blocks[i] == 0)
+    if(data_blocks[3][i] == 'F')
       count++;
   }
   return (count * BLOCK_SIZE);
+}
+
+
+//creates a file system
+//a file system is pretty much just a folder for all the other stuff
+//so we're making this new file/folder, then initializing all of our
+//blocks and struct *, tying the struct * with the actual data_block array,
+//and then writing the entire data_block array to this filesystem
+
+
+//so for open you'd just need to open the file pointer of the filesystem name
+//you were searching for, and for close you'd just close it to make sure no one
+//can write to it anymore
+//and for save you would rewrite your block struct to the filepointer to save
+//the new version
+void createfs_command(char * image_name)
+{
+  FILE *fp;
+  fp = fopen(image_name, "w+");
+  memset(&data_blocks[0], 0 , NUM_BLOCKS * BLOCK_SIZE);
+  initFreeBlocks();
+  initFreeInodes();
+
+  directory_ptr = (struct directory_entry *)&data_blocks[0];
+  initDirectory();
+
+  for(int i = 0; i < NUM_INODES; i++)
+  {
+    inode_arr_ptr[i] = (struct inode *)&data_blocks[i+5];
+  }
+  initInodes();
+
+  fwrite(&data_blocks[0], BLOCK_SIZE, NUM_BLOCKS, fp);
+  fclose(fp);
+}
+
+//all of the below are just init functions, wherre we're setting the base values
+//for everything 
+void initDirectory()
+{
+  for(int i = 0; i < MAX_FILE_NUM; i++)
+  {
+    memset(directory_ptr[i].name, 0 , 32 * sizeof(char));
+    directory_ptr[i].valid = 0;
+    directory_ptr[i].inode_idx = -1;
+  }
+}
+
+void initInodes()
+{
+  for(int i = 0; i < NUM_INODES; i++)
+  {
+    inode_arr_ptr[i]->date = -1;
+    inode_arr_ptr[i]->filesize = -1;
+    inode_arr_ptr[i]->valid = 0;
+    inode_arr_ptr[i]->hidden = 0;
+    inode_arr_ptr[i]->read_only = 0;
+    for(int j = 0; j < MAX_BLOCKS_PER_FILE; j++)
+    {
+      inode_arr_ptr[i]->blocks[j] = -1;
+    }
+  }
+}
+
+void initFreeBlocks()
+{
+  for(int i = 0; i < NUM_BLOCKS + 131; i++)
+  {
+    data_blocks[3][i] = 'F';
+  }
+}
+
+void initFreeInodes()
+{
+  for(int i = 0; i < NUM_INODES + 5; i++)
+  {
+    data_blocks[2][i] = 'F';
+  }
 }
