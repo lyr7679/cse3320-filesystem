@@ -32,7 +32,7 @@
 //  attrib command to be token[2]
 //also do we want createfs to change data_blocks?
 //  shouldnt data_blocks only be changed after we call open?
-//  would need to have a reset data-blocks command
+//  would need to have a reset data-blocks function
 //also probably need to reset everything if we close because technically if we close
 //  we can still use list command and other stuff and I dont think thats how it should work
 //  or maybe just have a conditional for if the currentFp == NULL then only open, createfs, 
