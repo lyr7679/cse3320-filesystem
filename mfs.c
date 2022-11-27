@@ -522,11 +522,12 @@ void put_command(char *filename)
 //im just going back six and cutting off the string there
 void list_command(char *token[])
 {
-  int dir_idx = 0;
+  //int dir_idx = 0;
   int inode_idx = 0;
   char *str;
 
-  while(directory_ptr[dir_idx].name != NULL)
+//  while(directory_ptr[dir_idx].name != NULL)
+  for(int dir_idx = 131; dir_idx < NUM_BLOCKS; dir_idx++)
   {
     if(!strcmp(token[1], "-h") && directory_ptr[dir_idx].valid == 1)
     {
@@ -575,7 +576,7 @@ void attrib_command(char *token[])
       filename = token[2];
   }
 
-  while(directory_ptr[dir_idx].name != NULL)
+  for(int dir_idx = 131; dir_idx < NUM_BLOCKS; dir_idx++)
   {
     if(!strcmp(directory_ptr[dir_idx].name, filename))
     {
@@ -662,7 +663,7 @@ void createfs_command(char * image_name)
 }
 
 //all of the below are just init functions, wherre we're setting the base values
-//for everything 
+//for everything
 void initDirectory()
 {
   for(int i = 0; i < MAX_FILE_NUM; i++)
