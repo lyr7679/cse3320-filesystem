@@ -20,6 +20,26 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 // THE SOFTWARE.
 
+//del still kind of weird
+//have to set blocks to be able to be written over but then i dont know how
+//  undel will work, how will that directory know when its data has been written over?
+//still need get commands
+//list command supa scuffed,seg faults i have no idea whats going on in there, may be a hard
+//  reset angle tbh, shouldnt be that hard
+//savefs, open should be good
+//removed the second set of ifs in the attrib, think it will only be one or the other
+//  wont be two commands at once, probably need to change the passed in filename to the
+//  attrib command to be token[2]
+//also do we want createfs to change data_blocks?
+//  shouldnt data_blocks only be changed after we call open?
+//  would need to have a reset data-blocks function
+//also probably need to reset everything if we close because technically if we close
+//  we can still use list command and other stuff and I dont think thats how it should work
+//  or maybe just have a conditional for if the currentFp == NULL then only open, createfs,
+//  and quit can be run
+//also made a global FILE currentFp to be the file that we are currently using, will be NULL
+//  if no file is currently open, line 93 is where its initialized
+
 #define _GNU_SOURCE
 
 #include <stdio.h>
@@ -70,6 +90,7 @@ struct inode{
 };
 
 struct inode * inode_arr_ptr[NUM_INODES];
+FILE *currentFp = NULL;
 
 int findFreeDirectory();
 int findFreeInode();
@@ -85,14 +106,14 @@ void initDirectory();
 void initInodes();
 void initFreeBlocks();
 void initFreeInodes();
+int delInode(char *filename);
+int undelInode(char *filename);
+void openfs(char *filename);
+void savefs();
 
 int main()
 {
   char * cmd_str = (char*) malloc( MAX_COMMAND_SIZE );
-
-  //initialize EVERYTHING
-
-
 
   while( 1 )
   {
@@ -143,11 +164,11 @@ int main()
 //    Now print the tokenized input as a debug check
 //    \TODO Remove this code and replace with your shell functionality
     //
-    int token_index  = 0;
-    for( token_index = 0; token_index < token_count; token_index ++ )
-    {
-      printf("token[%d] = %s\n", token_index, token[token_index] );
-    }
+    // int token_index  = 0;
+    // for( token_index = 0; token_index < token_count; token_index ++ )
+    // {
+    //   printf("token[%d] = %s\n", token_index, token[token_index] );
+    // }
 
     //clearing b/c sometimes we can get leftover garbage which throws results
     //for later loops
@@ -162,7 +183,7 @@ int main()
     }
 
     //confirmation check after every loop
-    printf("Disk free: %d bytes\n", df_command());
+    // printf("Disk free: %d bytes\n", df_command());
 
     for(int i = 0; i < token_count; i++)
     {
@@ -190,6 +211,31 @@ int findFreeDirectory()
       returnval = i;
       break;
     }
+  }
+  return returnval;
+}
+
+int findDeletedDirectory()
+{
+  int returnval = -1;
+
+  for(int i = 0; i < MAX_FILE_NUM; i++)
+  {
+    if(directory_ptr[i].valid == -1)
+    {
+      returnval = i;
+      break;
+    }
+  }
+
+  //we need to clear inode blocks  of this directory entry
+  //we'll be reusing
+  if(returnval != -1)
+  {
+    inode_arr_ptr[directory_ptr[returnval].inode_idx]->valid = 0;
+
+    for(int i = 0; i < MAX_BLOCKS_PER_FILE; i++)
+      inode_arr_ptr[directory_ptr[returnval].inode_idx]->blocks[i] = 0;
   }
   return returnval;
 }
@@ -256,7 +302,7 @@ int findFreeInodeBlock(int inode_idx)
 //and printing error messages will be handled in the respective functions, not here
 int valid_commands(char *token[])
 {
-
+    FILE *fp;
     if(token[0] == NULL)
     {
         return -1;
@@ -268,39 +314,63 @@ int valid_commands(char *token[])
         if(token[1] == NULL)
         {
           printf("put: too few arguments\n");
-          return 0;
         }
         put_command(token[1]);
-        return 0;
     }
     //if strcmp matches with listpids, we call our print pids function
     //that takes care of the functionality of the "listpids" command
     else if(!strcmp(token[0], "df"))
     {
-        printf("%d bytes free\n", df_command());
+      if(df_command() == -1)
+      {
         return 0;
+      }
+        printf("%d bytes free\n", df_command());
     }
     //if strcmp matches with cd, we call chdir
     //that takes care of the functionality of the "cd" command
     else if(!strcmp(token[0], "list"))
     {
         list_command(token);
-        return 0;
+    }
+    else if(!strcmp(token[0], "attrib"))
+    {
+      attrib_command(token);
     }
     else if(!strcmp(token[0], "createfs"))
     {
       if(token[1] == NULL)
       {
         printf("createfs: File not found.\n");
-        return 0;
       }
       createfs_command(token[1]);
-        return 0;
+    }
+    else if(!strcmp(token[0], "open"))
+    {
+      openfs(token[1]);
+    }
+    else if(!strcmp(token[0], "del"))
+    {
+      delInode(token[1]);
+    }
+    else if(!strcmp(token[0], "undel"))
+    {
+      undelInode(token[1]);
+    }
+    else if(!strcmp(token[0], "savefs"))
+    {
+      savefs(fp);
+    }
+    else if(!strcmp(token[0], "close"))
+    {
+      fclose(currentFp);
+      currentFp = NULL;
     }
     //if all conditions do not apply, return -1 to set flag
     //means command not found
     else
         return 1;
+    return 0;
 }
 
 
@@ -308,6 +378,11 @@ int valid_commands(char *token[])
 //comments are all in function below
 void put_command(char *filename)
 {
+  if(currentFp == NULL)
+  {
+    printf("put: Not currently in a filesystem\n");
+    return;
+  }
   int status = 0;
   //used for checking to see if we have a valid file to open
   struct stat buf;
@@ -340,6 +415,11 @@ void put_command(char *filename)
 
     //we need to find a free directory entry to insert this file
     int dir_idx = findFreeDirectory();
+    //if we cant find an open entry we can now check for "deleted files"
+    if(dir_idx == -1)
+    {
+
+    }
     if(dir_idx == -1)
     {
       printf("put error: Not enough disk space.\n");
@@ -522,36 +602,48 @@ void put_command(char *filename)
 //im just going back six and cutting off the string there
 void list_command(char *token[])
 {
-  //int dir_idx = 0;
-  int inode_idx = 0;
-  char *str;
-
-//  while(directory_ptr[dir_idx].name != NULL)
-  for(int dir_idx = 131; dir_idx < NUM_BLOCKS; dir_idx++)
+  if(currentFp == NULL)
   {
-    if(!strcmp(token[1], "-h") && directory_ptr[dir_idx].valid == 1)
-    {
-      inode_idx = directory_ptr[dir_idx].inode_idx;
-      str = (char *) inode_arr_ptr[inode_idx]->date;
-      str[strlen(str) - 6] = '\0';
+    printf("list: Not currently in a filesystem\n");
+    return;
+  }
+  int inode_idx = 0;
+  int dir_idx;
+  char *str;
+  int flag = 0;
 
-      printf("%d %s %s\n", inode_arr_ptr[inode_idx]->date, str, directory_ptr[dir_idx].name);
-    }
-    else if(token[1] == NULL && directory_ptr[dir_idx].valid == 1)
+  for(int dir_idx = 0; dir_idx < MAX_FILE_NUM; dir_idx++)
+  {
+    if(token[1] == NULL)
     {
+      if(directory_ptr[dir_idx].valid == 1)
+      {
       inode_idx = directory_ptr[dir_idx].inode_idx;
-      str = (char *) inode_arr_ptr[inode_idx]->date;
-      str[strlen(str) - 6] = '\0';
-
+      str = ctime(&inode_arr_ptr[inode_idx]->date);
+      str[strlen(str) - 9] = '\0';
       if(inode_arr_ptr[inode_idx]->hidden != 1)
+      {
+        flag++;
         printf("%d %s %s\n", inode_arr_ptr[inode_idx]->date, str, directory_ptr[dir_idx].name);
+      }
+      }
     }
-    dir_idx++;
+    else if(!strcmp(token[1], "-h"))
+    {
+      if(directory_ptr[dir_idx].valid == 1)
+      {
+        flag++;
+        inode_idx = directory_ptr[dir_idx].inode_idx;
+        str = ctime(&inode_arr_ptr[inode_idx]->date);
+        str[strlen(str) - 9] = '\0';
+        printf("%d %s %s\n", inode_arr_ptr[inode_idx]->date, str, directory_ptr[dir_idx].name);
+      }
+    }
   }
 
-  if(dir_idx == 0)
+  if(flag == 0)
   {
-    printf("No files found\n");
+    printf("list:No files found\n");
   }
 }
 
@@ -562,21 +654,34 @@ void list_command(char *token[])
 //the struct (accounts for if you change both attributes at one time)
 //if the flag is still set to zero by the end of it, we print out that the file
 //wasn't found
+//removed the second set of ifs, not needed, will be one or the other not both at the same time
 void attrib_command(char *token[])
 {
+  if(currentFp == NULL)
+  {
+    printf("attrib: Not currently in a filesystem\n");
+    return;
+  }
+
   int dir_idx = 0;
   int found = 0;
   char * filename;
 
+  if(token[1] == NULL || token[2] == NULL)
+  {
+      printf("attrib: Not enough arguments.\n");
+      return;
+  }
+
   if(token[1][0] == '-' || token[1][0] == '+')
   {
-    if(token[2][0] == '-' || token[2][0] == '+')
+    if((token[2][0] == '-' || token[2][0] == '+'))
       filename = token[3];
     else
       filename = token[2];
   }
 
-  for(int dir_idx = 131; dir_idx < NUM_BLOCKS; dir_idx++)
+  for(int dir_idx = 0; dir_idx < MAX_FILE_NUM; dir_idx++)
   {
     if(!strcmp(directory_ptr[dir_idx].name, filename))
     {
@@ -592,15 +697,17 @@ void attrib_command(char *token[])
       else if(!strcmp(token[1], "-r"))
         inode_arr_ptr[inode_idx]->read_only = 0;
 
-      if(!strcmp(token[2], "+h"))
-        inode_arr_ptr[inode_idx]->hidden = 1;
-      else if(!strcmp(token[2], "-h"))
-        inode_arr_ptr[inode_idx]->hidden = 0;
-      else if(!strcmp(token[2], "+r"))
-        inode_arr_ptr[inode_idx]->read_only = 1;
-      else if(!strcmp(token[2], "-r"))
-        inode_arr_ptr[inode_idx]->read_only = 0;
-
+      if(strcmp(filename, token[2]))
+      {
+        if(!strcmp(token[2], "+h"))
+         inode_arr_ptr[inode_idx]->hidden = 1;
+       else if(!strcmp(token[2], "-h"))
+         inode_arr_ptr[inode_idx]->hidden = 0;
+       else if(!strcmp(token[2], "+r"))
+         inode_arr_ptr[inode_idx]->read_only = 1;
+       else if(!strcmp(token[2], "-r"))
+         inode_arr_ptr[inode_idx]->read_only = 0;
+      }
       break;
     }
     dir_idx++;
@@ -618,6 +725,12 @@ void attrib_command(char *token[])
 //then we just multiply by the block size to get the number of bytes.
 int df_command()
 {
+  if(currentFp == NULL)
+  {
+    printf("df: Not currently in a filesystem\n");
+    return -1;
+  }
+
   int count = 0;
 
   for(int i = 131; i < NUM_BLOCKS; i++)
@@ -704,4 +817,81 @@ void initFreeInodes()
   {
     data_blocks[2][i] = 'F';
   }
+}
+
+int delInode(char *filename)
+{
+  if(currentFp == NULL)
+  {
+    printf("del: Not currently in a filesystem\n");
+    return -1;
+  }
+
+  for(int i = 0; i < NUM_INODES; i++)
+  {
+    if(!strcmp(directory_ptr[i].name, filename))
+    {
+      inode_arr_ptr[directory_ptr[i].inode_idx]->valid = -1;
+      printf("Successfully deleted file %s\n", filename);
+      return 0;
+    }
+  }
+  printf("File %s does not exist\n", filename);
+  return -1;
+}
+
+int undelInode(char *filename)
+{
+  if(currentFp == NULL)
+  {
+    printf("undel: Not currently in a filesystem\n");
+    return -1;
+  }
+
+  for(int i = 0; i < NUM_INODES; i++)
+  {
+    if(!strcmp(directory_ptr[i].name, filename) && inode_arr_ptr[directory_ptr[i].inode_idx]->valid == -1)
+    {
+      inode_arr_ptr[directory_ptr[i].inode_idx]->valid = 0;
+      printf("File %s successfully recovered \n", filename);
+      return 0;
+    }
+  }
+  printf("File %s could not be recovered\n", filename);
+  return -1;
+}
+
+void openfs(char *filename)
+{
+  if(currentFp == NULL)
+  {
+    currentFp = fopen(filename, "r+");
+    if(currentFp == NULL) {
+      printf("invalid filename\n");
+    }
+  }
+  else
+  {
+    printf("Another file is already open\nClose before opening %s\n", filename);
+    return;
+  }
+
+  fread(&data_blocks[0], BLOCK_SIZE, NUM_BLOCKS, currentFp);
+  directory_ptr = (struct directory_entry *)&data_blocks[0];
+  for(int i = 0; i < NUM_INODES; i++)
+  {
+    inode_arr_ptr[i] = (struct inode *)&data_blocks[i+5];
+  }
+}
+
+void savefs()
+{
+  if(currentFp == NULL)
+  {
+    printf("savefs: Not currently in a filesystem\n");
+    return;
+  }
+
+  rewind(currentFp);
+  fwrite(&data_blocks[0], BLOCK_SIZE, NUM_BLOCKS, currentFp);
 }
