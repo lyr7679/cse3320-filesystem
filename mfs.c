@@ -93,6 +93,7 @@ struct inode * inode_arr_ptr[NUM_INODES];
 FILE *currentFp = NULL;
 
 int findFreeDirectory();
+int findDeletedDirectory();
 int findFreeInode();
 int findFreeBlock();
 int findFreeInodeBlock(int inode_idx);
@@ -227,7 +228,6 @@ int findDeletedDirectory()
       break;
     }
   }
-
   //we need to clear inode blocks  of this directory entry
   //we'll be reusing
   if(returnval != -1)
@@ -418,7 +418,7 @@ void put_command(char *filename)
     //if we cant find an open entry we can now check for "deleted files"
     if(dir_idx == -1)
     {
-
+      dir_idx = findDeletedDirectory();
     }
     if(dir_idx == -1)
     {
