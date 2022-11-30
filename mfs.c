@@ -370,27 +370,6 @@ int valid_commands(char *token[])
       fclose(currentFp);
       currentFp = NULL;
     }
-    else if(!strcmp(token[0], "open"))
-    {
-      openfs(token[1]);
-    }
-    else if(!strcmp(token[0], "del"))
-    {
-      delInode(token[1]);
-    }
-    else if(!strcmp(token[0], "undel"))
-    {
-      undelInode(token[1]);
-    }
-    else if(!strcmp(token[0], "savefs"))
-    {
-      savefs(fp);
-    }
-    else if(!strcmp(token[0], "close"))
-    {
-      fclose(currentFp);
-      currentFp = NULL;
-    }
     else if(!strcmp(token[0], "get"))
     {
       getCommand(token);
