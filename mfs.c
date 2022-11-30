@@ -111,6 +111,7 @@ int delInode(char *filename);
 int undelInode(char *filename);
 void openfs(char *filename);
 void savefs();
+int getCommand(char *token[]);
 
 int main()
 {
@@ -368,6 +369,10 @@ int valid_commands(char *token[])
     {
       fclose(currentFp);
       currentFp = NULL;
+    }
+    else if(!strcmp(token[0], "get"))
+    {
+      getCommand(token);
     }
     //if all conditions do not apply, return -1 to set flag
     //means command not found
@@ -890,4 +895,57 @@ void savefs()
 
   rewind(currentFp);
   fwrite(&data_blocks[0], BLOCK_SIZE, NUM_BLOCKS, currentFp);
+}
+
+int getCommand(char *token[])
+{
+  char *filename;
+  int inodeIndex = -1;
+  int index = 0;
+  int counter = 0;
+  FILE *fp;
+
+  if(token[2] == NULL)
+    filename = token[1];
+  else
+    filename = token[2];
+
+  for(int i = 0; i < MAX_FILE_NUM; i++) 
+  {
+    if(!strcmp(token[1], directory_ptr[i].name))
+    {
+      inodeIndex = directory_ptr[i].inode_idx;
+      break;
+    }
+  }
+  if(inodeIndex == -1)
+  {
+    printf("File %s does not exist\n", filename);
+    return -1;
+  }
+
+  fp = fopen(filename, "w+");
+
+  for(int i = 0; i < 1250; i++) 
+  {
+    printf("%d ", inode_arr_ptr[inodeIndex]->blocks[i]);
+  }
+
+  while(index != -1)
+  {
+    index = inode_arr_ptr[inodeIndex]->blocks[counter];
+    counter++;
+    if(inode_arr_ptr[inodeIndex]->blocks[counter + 1] == -1)
+    {
+      fwrite(data_blocks[index], (inode_arr_ptr[inodeIndex]->filesize % 8192) - 1, 1, fp);
+      break;
+    }
+    else
+      fwrite(data_blocks[index], BLOCK_SIZE, 1, fp);
+  }
+
+  fclose(fp);
+
+  return 0;
+
 }
