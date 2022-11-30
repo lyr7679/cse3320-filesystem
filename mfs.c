@@ -415,7 +415,6 @@ void put_command(char *filename)
   int status = 0;
   //used for checking to see if we have a valid file to open
   struct stat buf;
-  int count = 0;
 
   //since we only allow for 32 chars we have to check this
   //i still need to account for requirement 1.9 which doesn't totally make sense
@@ -446,10 +445,6 @@ void put_command(char *filename)
     //we need to find a free directory entry to insert this file
     int dir_idx = findFreeDirectory();
     //if we cant find an open entry we can now check for "deleted files"
-    if(dir_idx == -1)
-    {
-      dir_idx = findDeletedDirectory();
-    }
     if(dir_idx == -1)
     {
       dir_idx = findDeletedDirectory();
@@ -508,13 +503,6 @@ void put_command(char *filename)
     // memory pool. Why? We are simulating the way the file system stores file data in
     // blocks of space on the disk. block_index will keep us pointing to the area of
     // the area that we will read from or write to.
-    int block_index = findFreeBlock();
-
-    if(block_index == -1)
-    {
-      printf("something is wrong\n");
-      return;
-    }
 
     // copy_size is initialized to the size of the input file so each loop iteration we
     // will copy BLOCK_SIZE bytes from the file then reduce our copy_size counter by
@@ -533,7 +521,7 @@ void put_command(char *filename)
       }
 
       //letting filesystem know this specific block is now in use
-      data_blocks[3][block_index] = 1;
+      //data_blocks[3][block_index] = 'T';
 
       int inode_block = findFreeInodeBlock(inode_idx);
 
@@ -549,7 +537,7 @@ void put_command(char *filename)
       //at the start, and then within that, going to the first free block of
       //the inode and storing the index of what block (131-4226) we have stored
       //this specific file data at
-      inode_arr_ptr[inode_block]->blocks[count] = block_index;
+      inode_arr_ptr[inode_idx]->blocks[inode_block] = block_index;
 
       // Index into the input file by offset number of bytes.  Initially offset is set to
       // zero so we copy BLOCK_SIZE number of bytes from the front of the file.  We
@@ -581,7 +569,7 @@ void put_command(char *filename)
       offset    += BLOCK_SIZE;
 
       // Increment the index into the block array
-      count++;
+      block_index ++;
     }
 
     //special case for when file is not an exact multiple of block size and we
@@ -928,4 +916,57 @@ void savefs()
 
   rewind(currentFp);
   fwrite(&data_blocks[0], BLOCK_SIZE, NUM_BLOCKS, currentFp);
+}
+
+int getCommand(char *token[])
+{
+  char *filename;
+  int inodeIndex = -1;
+  int index = 0;
+  int counter = 0;
+  FILE *fp;
+
+  if(token[2] == NULL)
+    filename = token[1];
+  else
+    filename = token[2];
+
+  for(int i = 0; i < MAX_FILE_NUM; i++) 
+  {
+    if(!strcmp(token[1], directory_ptr[i].name))
+    {
+      inodeIndex = directory_ptr[i].inode_idx;
+      break;
+    }
+  }
+  if(inodeIndex == -1)
+  {
+    printf("File %s does not exist\n", filename);
+    return -1;
+  }
+
+  fp = fopen(filename, "w+");
+
+  for(int i = 0; i < 1250; i++) 
+  {
+    printf("%d ", inode_arr_ptr[inodeIndex]->blocks[i]);
+  }
+
+  while(index != -1)
+  {
+    index = inode_arr_ptr[inodeIndex]->blocks[counter];
+    counter++;
+    if(inode_arr_ptr[inodeIndex]->blocks[counter + 1] == -1)
+    {
+      fwrite(data_blocks[index], (inode_arr_ptr[inodeIndex]->filesize % 8192) - 1, 1, fp);
+      break;
+    }
+    else
+      fwrite(data_blocks[index], BLOCK_SIZE, 1, fp);
+  }
+
+  fclose(fp);
+
+  return 0;
+
 }
