@@ -879,6 +879,7 @@ void openfs(char *filename)
 
   fread(&data_blocks[0], BLOCK_SIZE, NUM_BLOCKS, currentFp);
   directory_ptr = (struct directory_entry *)&data_blocks[0];
+
   for(int i = 0; i < NUM_INODES; i++)
   {
     inode_arr_ptr[i] = (struct inode *)&data_blocks[i+5];
@@ -926,15 +927,9 @@ int getCommand(char *token[])
 
   fp = fopen(filename, "w+");
 
-  for(int i = 0; i < 1250; i++) 
-  {
-    printf("%d ", inode_arr_ptr[inodeIndex]->blocks[i]);
-  }
-
   while(index != -1)
   {
     index = inode_arr_ptr[inodeIndex]->blocks[counter];
-    counter++;
     if(inode_arr_ptr[inodeIndex]->blocks[counter + 1] == -1)
     {
       fwrite(data_blocks[index], (inode_arr_ptr[inodeIndex]->filesize % 8192) - 1, 1, fp);
@@ -942,6 +937,7 @@ int getCommand(char *token[])
     }
     else
       fwrite(data_blocks[index], BLOCK_SIZE, 1, fp);
+    counter++;
   }
 
   fclose(fp);
