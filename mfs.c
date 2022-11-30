@@ -233,6 +233,7 @@ int findDeletedDirectory()
   if(returnval != -1)
   {
     inode_arr_ptr[directory_ptr[returnval].inode_idx]->valid = 0;
+    data_blocks[3][directory_ptr[returnval].inode_idx] = 'F';
 
     for(int i = 0; i < MAX_BLOCKS_PER_FILE; i++)
       inode_arr_ptr[directory_ptr[returnval].inode_idx]->blocks[i] = 0;
@@ -253,6 +254,7 @@ int findFreeInode()
     if(data_blocks[2][i] == 'F')
     {
       returnval = i;
+      data_blocks[2][i] = 'T';
       break;
     }
   }
@@ -271,6 +273,7 @@ int findFreeBlock()
     if(data_blocks[3][i] == 'F')
     {
       returnval = i;
+      data_blocks[3][i] = 'T';
       break;
     }
   }
@@ -286,7 +289,7 @@ int findFreeInodeBlock(int inode_idx)
   int returnval = -1;
   for(int i = 0; i < MAX_BLOCKS_PER_FILE; i++)
   {
-    if(inode_arr_ptr[inode_idx]->blocks[i] == -1);
+    if(inode_arr_ptr[inode_idx]->blocks[i] == -1)
     {
       returnval = i;
       break;
@@ -474,18 +477,13 @@ void put_command(char *filename)
     // memory pool. Why? We are simulating the way the file system stores file data in
     // blocks of space on the disk. block_index will keep us pointing to the area of
     // the area that we will read from or write to.
-    int block_index = findFreeBlock();
-
-    if(block_index == -1)
-    {
-      printf("something is wrong\n");
-      return;
-    }
 
     // copy_size is initialized to the size of the input file so each loop iteration we
     // will copy BLOCK_SIZE bytes from the file then reduce our copy_size counter by
     // BLOCK_SIZE number of bytes. When copy_size is less than or equal to zero we know
     // we have copied all the data from the input file.
+    int block_index = 0;
+
     while( copy_size >= BLOCK_SIZE )
     {
       block_index = findFreeBlock();
@@ -497,7 +495,7 @@ void put_command(char *filename)
       }
 
       //letting filesystem know this specific block is now in use
-      data_blocks[3][block_index] = 1;
+      //data_blocks[3][block_index] = 'T';
 
       int inode_block = findFreeInodeBlock(inode_idx);
 
@@ -506,6 +504,7 @@ void put_command(char *filename)
         printf("something is wrong\n");
         return;
       }
+
       //tbh im not too sure about this one
       //slightly iffy on how blocks/inodes/inode blocks are all connected
       //pretty sure im just going into the initial inode index we deemed free
@@ -513,7 +512,6 @@ void put_command(char *filename)
       //the inode and storing the index of what block (131-4226) we have stored
       //this specific file data at
       inode_arr_ptr[inode_idx]->blocks[inode_block] = block_index;
-
 
       // Index into the input file by offset number of bytes.  Initially offset is set to
       // zero so we copy BLOCK_SIZE number of bytes from the front of the file.  We
@@ -569,8 +567,6 @@ void put_command(char *filename)
         return;
       }
       inode_arr_ptr[inode_idx]->blocks[inode_block] = block_index;
-
-      data_blocks[3][block_index] = 1;
 
       fseek( ifp, offset, SEEK_SET );
       int bytes  = fread( data_blocks[block_index], copy_size, 1, ifp );
