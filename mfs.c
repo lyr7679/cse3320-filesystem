@@ -110,8 +110,9 @@ int delInode(char *filename);
 int undelInode(char *filename);
 void openfs(char *filename);
 void savefs();
+int getCommand(char *token[]);
 
-int main()
+    int main()
 {
   char * cmd_str = (char*) malloc( MAX_COMMAND_SIZE );
 
@@ -337,6 +338,10 @@ int valid_commands(char *token[])
       fclose(currentFp);
       currentFp = NULL;
     }
+    else if(!strcmp(token[0], "get"))
+    {
+      getCommand(token);
+    }
     //if all conditions do not apply, return -1 to set flag
     //means command not found
     else
@@ -352,6 +357,7 @@ void put_command(char *filename)
   int status = 0;
   //used for checking to see if we have a valid file to open
   struct stat buf;
+  int count = 0;
 
   //since we only allow for 32 chars we have to check this
   //i still need to account for requirement 1.9 which doesn't totally make sense
@@ -447,6 +453,7 @@ void put_command(char *filename)
     // will copy BLOCK_SIZE bytes from the file then reduce our copy_size counter by
     // BLOCK_SIZE number of bytes. When copy_size is less than or equal to zero we know
     // we have copied all the data from the input file.
+    int inode_block = findFreeInodeBlock(inode_idx);
     while( copy_size >= BLOCK_SIZE )
     {
       block_index = findFreeBlock();
@@ -460,8 +467,6 @@ void put_command(char *filename)
       //letting filesystem know this specific block is now in use
       data_blocks[3][block_index] = 1;
 
-      int inode_block = findFreeInodeBlock(inode_idx);
-
       if(inode_block == -1)
       {
         printf("something is wrong\n");
@@ -473,8 +478,7 @@ void put_command(char *filename)
       //at the start, and then within that, going to the first free block of
       //the inode and storing the index of what block (131-4226) we have stored
       //this specific file data at
-      inode_arr_ptr[inode_idx]->blocks[inode_block] = block_index;
-
+      inode_arr_ptr[inode_block]->blocks[count] = block_index;
 
       // Index into the input file by offset number of bytes.  Initially offset is set to
       // zero so we copy BLOCK_SIZE number of bytes from the front of the file.  We
@@ -506,7 +510,7 @@ void put_command(char *filename)
       offset    += BLOCK_SIZE;
 
       // Increment the index into the block array
-      block_index ++;
+      count++;
     }
 
     //special case for when file is not an exact multiple of block size and we
@@ -745,7 +749,7 @@ int delInode(char *filename)
   {
     if(!strcmp(directory_ptr[i].name, filename))
     {
-      inode_arr_ptr[directory_ptr[i].inode_idx]->valid = -1;
+      directory_ptr[i].valid = -1;
       printf("Successfully deleted file %s\n", filename);
       return 0;
     }
@@ -760,7 +764,7 @@ int undelInode(char *filename)
   {
     if(!strcmp(directory_ptr[i].name, filename) && inode_arr_ptr[directory_ptr[i].inode_idx]->valid == -1)
     {
-      inode_arr_ptr[directory_ptr[i].inode_idx]->valid = 0;
+      directory_ptr[i].valid = 0;
       printf("File %s successfully recovered \n", filename);
       return 0;
     }
@@ -793,4 +797,57 @@ void savefs()
 {
   rewind(currentFp);
   fwrite(&data_blocks[0], BLOCK_SIZE, NUM_BLOCKS, currentFp);
+}
+
+int getCommand(char *token[])
+{
+  char *filename;
+  int inodeIndex = -1;
+  int index = 0;
+  int counter = 0;
+  FILE *fp;
+
+  if(token[2] == NULL)
+    filename = token[1];
+  else
+    filename = token[2];
+
+  for(int i = 0; i < MAX_FILE_NUM; i++) 
+  {
+    if(!strcmp(token[1], directory_ptr[i].name))
+    {
+      inodeIndex = directory_ptr[i].inode_idx;
+      break;
+    }
+  }
+  if(inodeIndex == -1)
+  {
+    printf("File %s does not exist\n", filename);
+    return -1;
+  }
+
+  fp = fopen(filename, "w+");
+
+  for(int i = 0; i < 1250; i++) 
+  {
+    printf("%d ", inode_arr_ptr[inodeIndex]->blocks[i]);
+  }
+
+  while(index != -1)
+  {
+    index = inode_arr_ptr[inodeIndex]->blocks[counter];
+    counter++;
+    if(inode_arr_ptr[inodeIndex]->blocks[counter + 1] == -1)
+    {
+      fwrite(data_blocks[index], (inode_arr_ptr[inodeIndex]->filesize % 8192) - 1, 1, fp);
+      break;
+    }
+    else
+      fwrite(data_blocks[index], BLOCK_SIZE, 1, fp);
+  }
+
+  fclose(fp);
+
+  return 0;
+
 }
