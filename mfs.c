@@ -367,8 +367,16 @@ int valid_commands(char *token[])
     }
     else if(!strcmp(token[0], "close"))
     {
-      fclose(currentFp);
-      currentFp = NULL;
+      if (currentFp == NULL)
+      {
+        printf("close: Not currently in a filesystem\n");
+        return 0;
+      }
+      else
+      {
+        fclose(currentFp);
+        currentFp = NULL;
+      }
     }
     else if(!strcmp(token[0], "get"))
     {
@@ -732,14 +740,18 @@ int df_command()
     return -1;
   }
 
-  int count = 0;
+  int sum = BLOCK_SIZE * (NUM_BLOCKS - 131);
+  int temp = 0;
 
-  for(int i = 131; i < NUM_BLOCKS; i++)
+  for(int i = 0; i < MAX_FILE_NUM; i++)
   {
-    if(data_blocks[3][i] == 'F')
-      count++;
+    if(directory_ptr[i].valid == 1)
+    {
+      temp = (inode_arr_ptr[directory_ptr[i].inode_idx]->filesize / BLOCK_SIZE) + 1;
+      sum -= temp * BLOCK_SIZE;
+    }
   }
-  return (count * BLOCK_SIZE);
+  return sum;
 }
 
 
@@ -830,14 +842,13 @@ int delInode(char *filename)
 
   for(int i = 0; i < NUM_INODES; i++)
   {
-    if(!strcmp(directory_ptr[i].name, filename))
+    if(!strcmp(directory_ptr[i].name, filename) && inode_arr_ptr[directory_ptr[i].inode_idx]->read_only == 0)
     {
-      inode_arr_ptr[directory_ptr[i].inode_idx]->valid = -1;
-      printf("Successfully deleted file %s\n", filename);
+      directory_ptr[i].valid = -1;
       return 0;
     }
   }
-  printf("File %s does not exist\n", filename);
+  printf("del error: File not found.\n");
   return -1;
 }
 
@@ -851,14 +862,13 @@ int undelInode(char *filename)
 
   for(int i = 0; i < NUM_INODES; i++)
   {
-    if(!strcmp(directory_ptr[i].name, filename) && inode_arr_ptr[directory_ptr[i].inode_idx]->valid == -1)
+    if(!strcmp(directory_ptr[i].name, filename) && directory_ptr[i].valid == -1)
     {
-      inode_arr_ptr[directory_ptr[i].inode_idx]->valid = 0;
-      printf("File %s successfully recovered \n", filename);
+      directory_ptr[i].valid = 1;
       return 0;
     }
   }
-  printf("File %s could not be recovered\n", filename);
+  printf("undel error: File not found.\n");
   return -1;
 }
 
@@ -867,8 +877,10 @@ void openfs(char *filename)
   if(currentFp == NULL)
   {
     currentFp = fopen(filename, "r+");
-    if(currentFp == NULL) {
-      printf("invalid filename\n");
+    if(currentFp == NULL) 
+    {
+      printf("open error: File not found\n");
+      return;
     }
   }
   else
@@ -900,6 +912,13 @@ void savefs()
 
 int getCommand(char *token[])
 {
+
+  if (currentFp == NULL)
+  {
+    printf("get: Not currently in a filesystem\n");
+    return -1;
+  }
+
   char *filename;
   int inodeIndex = -1;
   int index = 0;
@@ -921,7 +940,7 @@ int getCommand(char *token[])
   }
   if(inodeIndex == -1)
   {
-    printf("File %s does not exist\n", filename);
+    printf("get error: File not found.\n");
     return -1;
   }
 
