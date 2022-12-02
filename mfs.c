@@ -181,7 +181,7 @@ int getCommand(char *token[]);
 
     if(valid_cmd == 1)
     {
-      printf("no\n");
+      printf("Invalid command\n");
     }
 
     //confirmation check after every loop
@@ -346,19 +346,35 @@ int valid_commands(char *token[])
       if(token[1] == NULL)
       {
         printf("createfs: File not found.\n");
+        return 0;
       }
       createfs_command(token[1]);
     }
     else if(!strcmp(token[0], "open"))
     {
+      if(token[1] == NULL)
+      {
+        printf("open: Not enough arguments.\n");
+        return 0;
+      }
       openfs(token[1]);
     }
     else if(!strcmp(token[0], "del"))
     {
+      if(token[1] == NULL)
+      {
+        printf("del: Not enough arguments.\n");
+        return 0;
+      }
       delInode(token[1]);
     }
     else if(!strcmp(token[0], "undel"))
     {
+      if(token[1] == NULL)
+      {
+        printf("undel: Not enough arguments.\n");
+        return 0;
+      }
       undelInode(token[1]);
     }
     else if(!strcmp(token[0], "savefs"))
@@ -380,6 +396,11 @@ int valid_commands(char *token[])
     }
     else if(!strcmp(token[0], "get"))
     {
+      if(token[1] == NULL)
+      {
+        printf("get: Not enough arguments.\n");
+        return 0;
+      }
       getCommand(token);
     }
     //if all conditions do not apply, return -1 to set flag
@@ -684,10 +705,15 @@ void attrib_command(char *token[])
 
   if(token[1][0] == '-' || token[1][0] == '+')
   {
-    if((token[2][0] == '-' || token[2][0] == '+'))
-      filename = token[3];
-    else
+    if(token[2] != NULL)
+    {
       filename = token[2];
+    }
+    else
+    {
+      printf("attrib: Not enough arguments.\n");
+      return;
+    }
   }
 
   for(int dir_idx = 0; dir_idx < MAX_FILE_NUM; dir_idx++)
@@ -705,18 +731,6 @@ void attrib_command(char *token[])
         inode_arr_ptr[inode_idx]->read_only = 1;
       else if(!strcmp(token[1], "-r"))
         inode_arr_ptr[inode_idx]->read_only = 0;
-
-      if(strcmp(filename, token[2]))
-      {
-        if(!strcmp(token[2], "+h"))
-         inode_arr_ptr[inode_idx]->hidden = 1;
-       else if(!strcmp(token[2], "-h"))
-         inode_arr_ptr[inode_idx]->hidden = 0;
-       else if(!strcmp(token[2], "+r"))
-         inode_arr_ptr[inode_idx]->read_only = 1;
-       else if(!strcmp(token[2], "-r"))
-         inode_arr_ptr[inode_idx]->read_only = 0;
-      }
       break;
     }
     dir_idx++;
@@ -868,7 +882,7 @@ int undelInode(char *filename)
       return 0;
     }
   }
-  printf("undel error: File not found.\n");
+  printf("undel: Can not find file.\n");
   return -1;
 }
 
@@ -877,7 +891,7 @@ void openfs(char *filename)
   if(currentFp == NULL)
   {
     currentFp = fopen(filename, "r+");
-    if(currentFp == NULL) 
+    if(currentFp == NULL)
     {
       printf("open error: File not found\n");
       return;
@@ -930,7 +944,7 @@ int getCommand(char *token[])
   else
     filename = token[2];
 
-  for(int i = 0; i < MAX_FILE_NUM; i++) 
+  for(int i = 0; i < MAX_FILE_NUM; i++)
   {
     if(!strcmp(token[1], directory_ptr[i].name))
     {
